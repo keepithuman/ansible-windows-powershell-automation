@@ -1,0 +1,215 @@
+---
+# IIS Web Server Deployment and Configuration
+# Comprehensive IIS setup with security hardening and application deployment
+
+- name: "Deploy and Configure IIS Web Server"
+  hosts: web_servers
+  gather_facts: true
+  serial: "{{ iis_deployment_batch_size | default(2) }}"
+  
+  vars:
+    deployment_timestamp: "{{ ansible_date_time.epoch }}"
+    iis_backup_name: "IIS_Backup_{{ ansible_date_time.date }}_{{ ansible_date_time.time | replace(':', '') }}"
+    
+  pre_tasks:
+    - name: "Validate IIS deployment prerequisites"
+      block:
+        - name: "Check if server is designated for web role"
+          assert:
+            that:
+              - "'web_servers' in group_names"
+            fail_msg: "This playbook should only run on designated web servers"
+            
+        - name: "Verify available disk space"
+          win_shell: |
+            $drive = Get-WmiObject -Class Win32_LogicalDisk -Filter "DeviceID='C:'"
+            [math]::Round($drive.FreeSpace / 1GB, 2)
+          register: free_space_gb
+          
+        - name: "Ensure sufficient disk space"
+          assert:
+            that:
+              - free_space_gb.stdout | float > 5.0
+            fail_msg: "Insufficient disk space. Required: 5GB, Available: {{ free_space_gb.stdout | float }}GB"
+            
+      tags:
+        - validation
+        
+  tasks:
+    # Stage 1: Install IIS and required features
+    - name: "Stage 1: Install IIS Features"
+      block:
+        - name: "Install core IIS features"
+          win_feature:
+            name: "{{ item }}"
+            state: present
+            include_management_tools: true
+          loop:
+            - IIS-WebServerRole
+            - IIS-WebServer
+            - IIS-CommonHttpFeatures
+            - IIS-HttpErrors
+            - IIS-HttpRedirect
+            - IIS-ApplicationDevelopment
+            - IIS-NetFxExtensibility45
+            - IIS-ISAPIExtensions
+            - IIS-ISAPIFilter
+            - IIS-ASPNET45
+            - IIS-Security
+            - IIS-RequestFiltering
+            - IIS-BasicAuthentication
+            - IIS-WindowsAuthentication
+            - IIS-Performance
+            - IIS-WebServerManagementTools
+            - IIS-ManagementConsole
+            - IIS-HttpCompressionStatic
+            - IIS-HttpCompressionDynamic
+          register: iis_features_result
+          notify: restart_iis
+          
+      tags:
+        - stage1
+        - iis_install
+        
+    # Stage 2: Configure IIS global settings
+    - name: "Stage 2: Configure IIS Global Settings"
+      block:
+        - name: "Configure default document settings"
+          win_shell: |
+            Import-Module WebAdministration
+            Clear-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/defaultDocument/files'
+            Add-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/defaultDocument/files' -Value @{value='index.html'}
+            Add-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/defaultDocument/files' -Value @{value='index.htm'}
+            Add-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/defaultDocument/files' -Value @{value='default.html'}
+            
+        - name: "Configure request filtering"
+          win_shell: |
+            Import-Module WebAdministration
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/security/requestFiltering/requestLimits' -Name 'maxAllowedContentLength' -Value {{ iis_max_content_length | default(30000000) }}
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/security/requestFiltering/requestLimits' -Name 'maxUrl' -Value {{ iis_max_url_length | default(4096) }}
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/security/requestFiltering/requestLimits' -Name 'maxQueryString' -Value {{ iis_max_query_string | default(2048) }}
+            
+        - name: "Configure compression settings"
+          win_shell: |
+            Import-Module WebAdministration
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/httpCompression' -Name 'doDynamicCompression' -Value True
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/httpCompression' -Name 'doStaticCompression' -Value True
+            
+      tags:
+        - stage2
+        - iis_global
+        
+    # Stage 3: Create and configure application pools
+    - name: "Stage 3: Configure Application Pools"
+      block:
+        - name: "Create custom application pools"
+          win_iis_webapppool:
+            name: "{{ item.name }}"
+            state: present
+            attributes:
+              managedRuntimeVersion: "{{ item.runtime_version | default('v4.0') }}"
+              enable32BitAppOnWin64: "{{ item.enable_32bit | default(false) }}"
+              processModel.identityType: "{{ item.identity_type | default('ApplicationPoolIdentity') }}"
+              processModel.idleTimeout: "{{ item.idle_timeout | default('00:20:00') }}"
+              recycling.periodicRestart.time: "{{ item.recycle_time | default('29:00:00') }}"
+          loop: "{{ application_pools | default([]) }}"
+          
+        - name: "Start application pools"
+          win_iis_webapppool:
+            name: "{{ item.name }}"
+            state: started
+          loop: "{{ application_pools | default([]) }}"
+          
+      tags:
+        - stage3
+        - app_pools
+        
+    # Stage 4: Security hardening
+    - name: "Stage 4: IIS Security Hardening"
+      block:
+        - name: "Remove unnecessary HTTP response headers"
+          win_shell: |
+            Import-Module WebAdministration
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/security/requestFiltering' -Name 'removeServerHeader' -Value True
+            
+        - name: "Add security headers"
+          win_shell: |
+            Import-Module WebAdministration
+            Add-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/httpProtocol/customHeaders' -Name '.' -Value @{name='X-Content-Type-Options'; value='nosniff'}
+            Add-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/httpProtocol/customHeaders' -Name '.' -Value @{name='X-Frame-Options'; value='SAMEORIGIN'}
+            Add-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/httpProtocol/customHeaders' -Name '.' -Value @{name='X-XSS-Protection'; value='1; mode=block'}
+          when: security_level == "high" or security_level == "maximum"
+          
+        - name: "Configure directory browsing"
+          win_shell: |
+            Import-Module WebAdministration
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/directoryBrowse' -Name 'enabled' -Value False
+            
+      tags:
+        - stage4
+        - security
+        
+    # Stage 5: Configure logging and monitoring
+    - name: "Stage 5: Configure Logging and Monitoring"
+      block:
+        - name: "Configure IIS logging"
+          win_shell: |
+            Import-Module WebAdministration
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.applicationHost/sites/siteDefaults/logFile' -Name 'enabled' -Value True
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.applicationHost/sites/siteDefaults/logFile' -Name 'logFormat' -Value 'W3C'
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.applicationHost/sites/siteDefaults/logFile' -Name 'directory' -Value '{{ iis_log_directory | default('%SystemDrive%\\inetpub\\logs\\LogFiles') }}'
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.applicationHost/sites/siteDefaults/logFile' -Name 'period' -Value 'Daily'
+            
+        - name: "Configure failed request tracing"
+          win_shell: |
+            Import-Module WebAdministration
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.applicationHost/sites/siteDefaults/traceFailedRequestsLogging' -Name 'enabled' -Value True
+            Set-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.applicationHost/sites/siteDefaults/traceFailedRequestsLogging' -Name 'directory' -Value '{{ freb_log_directory | default('%SystemDrive%\\inetpub\\logs\\FailedReqLogFiles') }}'
+          when: enable_failed_request_tracing | default(true)
+          
+      tags:
+        - stage5
+        - logging
+        
+  post_tasks:
+    - name: "Validate IIS deployment"
+      block:
+        - name: "Verify application pools are running"
+          win_shell: |
+            Import-Module WebAdministration
+            Get-WebAppPoolState -Name '{{ item.name }}'
+          loop: "{{ application_pools | default([]) }}"
+          register: apppool_status
+          
+        - name: "Generate deployment report"
+          copy:
+            content: |
+              IIS Deployment Report
+              =====================
+              Server: {{ inventory_hostname }}
+              Deployment Time: {{ deployment_timestamp }}
+              Features Installed: {{ iis_features_result.installed_features | default([]) | length }}
+              Application Pools: {{ application_pools | default([]) | length }}
+              Security Level: {{ security_level | default('standard') }}
+            dest: "./reports/{{ inventory_hostname }}_iis_deployment_{{ deployment_timestamp }}.txt"
+          delegate_to: localhost
+          
+      tags:
+        - validation
+        - reporting
+        
+    - name: "Log deployment completion"
+      win_eventlog:
+        log: Application
+        source: "IIS Deployment"
+        event_id: 2000
+        message: "IIS deployment completed successfully on {{ inventory_hostname }}"
+        entry_type: Information
+      tags:
+        - logging
+        
+  handlers:
+    - name: restart_iis
+      win_service:
+        name: W3SVC
+        state: restarted
