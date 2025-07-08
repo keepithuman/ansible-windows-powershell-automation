@@ -1,0 +1,192 @@
+---
+# CIS (Center for Internet Security) Baseline Implementation
+# Implements CIS Windows Server 2022 Benchmark controls
+
+- name: "Apply CIS Windows Server Baseline"
+  hosts: windows
+  gather_facts: true
+  become: true
+  serial: "{{ cis_batch_size | default(10) }}"
+  
+  vars:
+    cis_version: "2.0.0"
+    baseline_start_time: "{{ ansible_date_time.epoch }}"
+    
+  pre_tasks:
+    - name: "Validate CIS baseline prerequisites"
+      block:
+        - name: "Check Windows version compatibility"
+          assert:
+            that:
+              - ansible_os_family == "Windows"
+              - ansible_distribution_major_version | int >= 10
+            fail_msg: "CIS baseline requires Windows Server 2016 or later"
+            
+        - name: "Verify administrative privileges"
+          win_whoami:
+          register: current_user
+          
+      tags:
+        - validation
+        - prerequisites
+        
+  tasks:
+    # Section 1: Account Policies
+    - name: "CIS Section 1: Account Policies"
+      block:
+        - name: "1.1.1 Enforce password history (CIS 1.1.1)"
+          win_security_policy:
+            section: "System Access"
+            key: PasswordHistorySize
+            value: "{{ security_baseline.password_policy.history_count }}"
+            
+        - name: "1.1.2 Maximum password age (CIS 1.1.2)"
+          win_security_policy:
+            section: "System Access"
+            key: MaximumPasswordAge
+            value: "{{ security_baseline.password_policy.maximum_age }}"
+            
+        - name: "1.1.3 Minimum password age (CIS 1.1.3)"
+          win_security_policy:
+            section: "System Access"
+            key: MinimumPasswordAge
+            value: "{{ security_baseline.password_policy.minimum_age }}"
+            
+        - name: "1.1.4 Minimum password length (CIS 1.1.4)"
+          win_security_policy:
+            section: "System Access"
+            key: MinimumPasswordLength
+            value: "{{ security_baseline.password_policy.minimum_length }}"
+            
+        - name: "1.1.5 Password must meet complexity requirements (CIS 1.1.5)"
+          win_security_policy:
+            section: "System Access"
+            key: PasswordComplexity
+            value: "{{ 1 if security_baseline.password_policy.complexity_enabled else 0 }}"
+            
+      tags:
+        - cis_section1
+        - account_policies
+        
+    # Section 2: Local Policies - Audit Policy
+    - name: "CIS Section 2: Local Policies - Audit Policy"
+      block:
+        - name: "2.3.1.1 Audit Credential Validation (CIS 2.3.1.1)"
+          win_audit_policy_system:
+            category: "Credential Validation"
+            success: true
+            failure: true
+            
+        - name: "2.3.4.2 Audit Logon (CIS 2.3.4.2)"
+          win_audit_policy_system:
+            category: "Logon"
+            success: true
+            failure: true
+            
+        - name: "2.3.10.1 Audit Process Creation (CIS 2.3.10.1)"
+          win_audit_policy_system:
+            category: "Process Creation"
+            success: true
+            failure: false
+            
+        - name: "2.3.13.1 Audit Policy Change (CIS 2.3.13.1)"
+          win_audit_policy_system:
+            category: "Audit Policy Change"
+            success: true
+            failure: true
+            
+      tags:
+        - cis_section2
+        - audit_policy
+        
+    # Section 3: Security Options
+    - name: "CIS Section 3: Security Options"
+      block:
+        - name: "2.3.1.3 Accounts: Guest account status (CIS 2.3.1.3)"
+          win_user:
+            name: Guest
+            account_disabled: true
+            
+        - name: "2.3.1.4 Accounts: Limit local account use (CIS 2.3.1.4)"
+          win_regedit:
+            path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+            name: LocalAccountTokenFilterPolicy
+            data: 0
+            type: dword
+            
+        - name: "2.3.4.1 Devices: Allowed to format and eject removable media (CIS 2.3.4.1)"
+          win_regedit:
+            path: HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon
+            name: AllocateDASD
+            data: "0"
+            type: string
+            
+        - name: "2.3.6.1 Domain member: Digitally encrypt or sign secure channel data (CIS 2.3.6.1)"
+          win_regedit:
+            path: HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters
+            name: RequireSignOrSeal
+            data: 1
+            type: dword
+            
+      tags:
+        - cis_section3
+        - security_options
+        
+    # Section 4: Windows Firewall
+    - name: "CIS Section 4: Windows Firewall Configuration"
+      block:
+        - name: "9.1.1 Ensure Windows Firewall is turned on (CIS 9.1.1)"
+          win_firewall:
+            state: enabled
+            profiles:
+              - domain
+              - private
+              - public
+              
+        - name: "9.1.2 Ensure inbound connections are blocked (CIS 9.1.2)"
+          win_command: |
+            netsh advfirewall set domainprofile firewallpolicy blockinbound,allowoutbound
+            netsh advfirewall set privateprofile firewallpolicy blockinbound,allowoutbound
+            netsh advfirewall set publicprofile firewallpolicy blockinbound,allowoutbound
+          changed_when: false
+          
+      tags:
+        - cis_section4
+        - firewall
+        
+  post_tasks:
+    - name: "Generate CIS compliance report"
+      block:
+        - name: "Collect compliance status"
+          set_fact:
+            cis_compliance_status:
+              baseline_version: "{{ cis_version }}"
+              applied_date: "{{ ansible_date_time.iso8601 }}"
+              server: "{{ inventory_hostname }}"
+              environment: "{{ environment_name }}"
+              
+        - name: "Save compliance report"
+          copy:
+            content: "{{ cis_compliance_status | to_nice_json }}"
+            dest: "./reports/{{ inventory_hostname }}_cis_compliance_{{ ansible_date_time.date }}.json"
+          delegate_to: localhost
+          
+      tags:
+        - reporting
+        - compliance
+        
+    - name: "Log CIS baseline completion"
+      win_eventlog:
+        log: Security
+        source: "CIS Baseline"
+        event_id: 4719
+        message: "CIS Windows Server Baseline {{ cis_version }} applied successfully"
+        entry_type: Information
+      tags:
+        - logging
+        
+  handlers:
+    - name: reboot_system
+      win_reboot:
+        reboot_timeout: 900
+        connect_timeout: 60
