@@ -1,0 +1,28 @@
+# Core Ansible requirements
+ansible>=7.0.0
+ansible-core>=2.14.0
+
+# Windows connectivity
+pywinrm>=0.4.3
+requests-credssp>=2.0.0
+requests-ntlm>=1.1.0
+
+# Additional utilities
+jinja2>=3.1.0
+pyyaml>=6.0
+netaddr>=0.8.0
+jmespath>=1.0.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-ansible>=3.1.0
+molecule>=5.0.0
+molecule-plugins[docker]>=23.0.0
+
+# Documentation
+mkdocs>=1.4.0
+mkdocs-material>=8.5.0
+
+# Security scanning
+bandit>=1.7.0
+safety>=2.3.0
