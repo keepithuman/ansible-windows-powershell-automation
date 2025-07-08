@@ -24,18 +24,6 @@ A comprehensive, modular Ansible automation framework specifically designed for 
 - **ROI**: 70% faster deployments, reduced deployment failures
 - **Use Case**: Deploy enterprise applications to development, staging, and production environments
 
-#### 4. **Security Hardening & Audit Compliance**
-- **Problem**: Manual security configuration is inconsistent and audit-prone
-- **Solution**: Automated security baseline implementation and verification
-- **ROI**: 100% compliance adherence, reduced audit preparation time
-- **Use Case**: Implement CIS benchmarks, STIG compliance across all Windows systems
-
-#### 5. **Disaster Recovery & System Restoration**
-- **Problem**: Manual disaster recovery processes are slow and unreliable
-- **Solution**: Automated backup, restoration, and failover procedures
-- **ROI**: 80% faster recovery times, guaranteed process consistency
-- **Use Case**: Automated backup verification and rapid system restoration
-
 ### **Time & Cost Savings Analysis**
 
 | Task | Manual Time | Automated Time | Time Savings | Annual Cost Savings* |
@@ -70,46 +58,13 @@ ansible-windows-powershell-automation/
 │   ├── applications/      # Application management
 │   └── maintenance/       # Patching & system maintenance
 ├── roles/                 # Reusable Ansible roles
-│   ├── windows-base/      # Base Windows configuration
-│   ├── iis-config/        # IIS web server management
-│   ├── sql-server/        # SQL Server automation
-│   └── security-baseline/ # Security hardening
 ├── inventory/             # Environment-specific inventories
-│   ├── development/       # Dev environment hosts
-│   ├── staging/          # Staging environment hosts
-│   └── production/       # Production environment hosts
 ├── group_vars/           # Environment variables
-├── host_vars/            # Host-specific variables
 ├── library/              # Custom PowerShell modules
-├── filter_plugins/       # Custom Jinja2 filters
-├── callback_plugins/     # Custom callback plugins
 ├── scripts/              # Helper scripts and utilities
 ├── tests/                # Automated testing framework
 └── docs/                 # Comprehensive documentation
 ```
-
-## 🎯 Key Features
-
-### **Enterprise-Grade Capabilities**
-- **Modular Architecture**: Plug-and-play components for maximum flexibility
-- **Multi-Environment Support**: Dev, staging, production inventory management
-- **Role-Based Access**: Integration with enterprise authentication systems
-- **Comprehensive Logging**: Detailed audit trails and execution reporting
-- **Error Handling**: Robust error handling with automatic rollback capabilities
-
-### **Windows-Specific Optimizations**
-- **PowerShell DSC Integration**: Leverage Desired State Configuration
-- **WMI/CIM Utilization**: Advanced system information gathering
-- **Registry Management**: Safe registry manipulation with backup/restore
-- **Service Management**: Comprehensive Windows service lifecycle management
-- **Performance Monitoring**: Built-in performance metric collection
-
-### **IAG Integration Benefits**
-- **RESTful API Interface**: Seamless integration with IAG workflows
-- **Job Scheduling**: Advanced scheduling with dependency management
-- **Real-time Monitoring**: Live execution status and progress tracking
-- **Webhook Support**: Event-driven automation triggers
-- **Multi-tenancy**: Support for multiple customer environments
 
 ## 🚀 Quick Start
 
@@ -140,327 +95,334 @@ ansible-playbook -i inventory/production/hosts.yml playbooks/security/cis-baseli
 
 ## 🔧 IAG (Itential Automation Gateway) Integration
 
-### Creating IAG Repository
+### Prerequisites
+- IAG server running on Linux
+- CLI access to IAG server
+- Git repository access
+- Administrative privileges on IAG
 
-1. **Log into IAG Interface**
-   ```
-   https://your-iag-server/
-   ```
+### Step 1: Create Repository in IAG
 
-2. **Navigate to Repository Management**
-   - Go to **Configuration** → **Repositories**
-   - Click **Add Repository**
+SSH to your IAG server and run:
 
-3. **Configure Repository Settings**
-   ```yaml
-   Name: ansible-windows-powershell-automation
-   Description: Ansible Windows PowerShell automation framework for enterprise infrastructure management
-   URL: https://github.com/keepithuman/ansible-windows-powershell-automation.git
-   Reference: main
-   Authentication: None (for public repo) or configure SSH key for private repo
-   ```
+```bash
+# Navigate to IAG directory
+cd /opt/itential
 
-4. **Verify Repository Sync**
-   - Click **Sync** to pull the latest code
-   - Verify all playbooks and files are available
+# Create repository using IAG CLI
+iag repository create \
+  --name "ansible-windows-powershell-automation" \
+  --description "Enterprise Ansible automation framework for Windows systems using PowerShell" \
+  --url "https://github.com/keepithuman/ansible-windows-powershell-automation.git" \
+  --reference "main" \
+  --type "git"
 
-### Creating IAG Services
+# Verify repository creation
+iag repository list
+```
+
+### Step 2: Create Core Automation Services
 
 #### Service 1: Windows Server Provisioning
 
-1. **Navigate to Service Management**
-   - Go to **Configuration** → **Services**
-   - Click **Add Service**
-
-2. **Configure Basic Settings**
-   ```yaml
-   Service Type: ansible-playbook
-   Name: windows-server-provisioning
-   Description: Comprehensive Windows server provisioning and base configuration automation service
-   Repository: ansible-windows-powershell-automation
-   ```
-
-3. **Configure Ansible Settings**
-   ```yaml
-   Playbooks: 
-     - playbooks/infrastructure/server-provision.yml
-   Inventory:
-     - inventory/development/hosts.yml    # For dev environment
-     - inventory/staging/hosts.yml        # For staging environment  
-     - inventory/production/hosts.yml     # For production environment
-   Working Directory: (leave blank to use repository root)
-   ```
-
-4. **Configure Runtime Arguments**
-   ```yaml
-   Extra Variables:
-     - environment_name=development
-     - provision_batch_size=5
-     - deployment_timestamp=$(date +%Y%m%d_%H%M%S)
-   
-   Tags: infrastructure, provisioning, windows, automation, enterprise
-   Verbosity: 2 (for detailed output)
-   Enable Diff: true
-   Check Mode: false
-   ```
-
-5. **Configure Advanced Options**
-   ```yaml
-   Timeout: 3600 seconds (1 hour)
-   Retry Count: 2
-   Parallel Execution: false (for safe sequential deployment)
-   ```
+```bash
+# Create server provisioning service
+iag service create \
+  --service-type "ansible-playbook" \
+  --name "windows-server-provisioning" \
+  --repository "ansible-windows-powershell-automation" \
+  --description "Comprehensive Windows server provisioning and base configuration automation service" \
+  --playbook "playbooks/infrastructure/server-provision.yml" \
+  --inventory "inventory/development/hosts.yml" \
+  --working-dir "." \
+  --extra-vars "environment_name=development,provision_batch_size=5" \
+  --tags "infrastructure,provisioning,windows,automation,enterprise" \
+  --verbosity 2 \
+  --diff
+```
 
 #### Service 2: Windows Security Baseline
 
-1. **Create New Service**
-   ```yaml
-   Service Type: ansible-playbook
-   Name: windows-security-baseline
-   Description: CIS security baseline implementation and compliance automation for Windows servers
-   Repository: ansible-windows-powershell-automation
-   ```
-
-2. **Configure Playbook Settings**
-   ```yaml
-   Playbooks:
-     - playbooks/security/cis-baseline.yml
-   Inventory: (same as above - environment specific)
-   Extra Variables:
-     - compliance_framework=cis
-     - security_level=high
-     - environment_name=development
-   Tags: security, compliance, cis, hardening
-   ```
+```bash
+# Create security baseline service
+iag service create \
+  --service-type "ansible-playbook" \
+  --name "windows-security-baseline" \
+  --repository "ansible-windows-powershell-automation" \
+  --description "CIS security baseline implementation and compliance automation for Windows servers" \
+  --playbook "playbooks/security/cis-baseline.yml" \
+  --inventory "inventory/development/hosts.yml" \
+  --working-dir "." \
+  --extra-vars "compliance_framework=cis,security_level=high" \
+  --tags "security,compliance,cis,hardening,baseline" \
+  --verbosity 2 \
+  --diff
+```
 
 #### Service 3: IIS Web Server Deployment
 
-1. **Create New Service**
-   ```yaml
-   Service Type: ansible-playbook
-   Name: windows-iis-deployment
-   Description: IIS web server deployment and configuration automation with security hardening
-   Repository: ansible-windows-powershell-automation
-   ```
-
-2. **Configure Settings**
-   ```yaml
-   Playbooks:
-     - playbooks/applications/iis-deployment.yml
-   Inventory: (environment specific)
-   Host Limit: web_servers (only run on web server group)
-   Extra Variables:
-     - iis_deployment_batch_size=2
-     - security_level=high
-     - remove_default_site=false
-   Tags: applications, iis, webserver, deployment
-   ```
+```bash
+# Create IIS deployment service
+iag service create \
+  --service-type "ansible-playbook" \
+  --name "windows-iis-deployment" \
+  --repository "ansible-windows-powershell-automation" \
+  --description "IIS web server deployment and configuration automation with security hardening" \
+  --playbook "playbooks/applications/iis-deployment.yml" \
+  --inventory "inventory/development/hosts.yml" \
+  --working-dir "." \
+  --limit "web_servers" \
+  --extra-vars "iis_deployment_batch_size=2,security_level=high" \
+  --tags "applications,iis,webserver,deployment" \
+  --verbosity 2 \
+  --diff
+```
 
 #### Service 4: Windows Update Management
 
-1. **Create New Service**
-   ```yaml
-   Service Type: ansible-playbook
-   Name: windows-update-management
-   Description: Windows update management and deployment automation with rollback capabilities
-   Repository: ansible-windows-powershell-automation
-   ```
+```bash
+# Create update management service
+iag service create \
+  --service-type "ansible-playbook" \
+  --name "windows-update-management" \
+  --repository "ansible-windows-powershell-automation" \
+  --description "Windows update management and deployment automation with rollback capabilities" \
+  --playbook "playbooks/maintenance/windows-updates.yml" \
+  --inventory "inventory/development/hosts.yml" \
+  --working-dir "." \
+  --extra-vars "update_batch_size=25%,enable_update_rollback=true,auto_reboot=true" \
+  --tags "maintenance,updates,patching,windows" \
+  --verbosity 2 \
+  --diff
+```
 
-2. **Configure Settings**
-   ```yaml
-   Playbooks:
-     - playbooks/maintenance/windows-updates.yml
-   Extra Variables:
-     - update_batch_size=25%
-     - enable_update_rollback=true
-     - auto_reboot=true
-     - install_optional_updates=false
-   Tags: maintenance, updates, patching, windows
-   ```
+### Step 3: Configure Service Parameters
 
-### IAG Service Execution
+Each service accepts these runtime parameters:
 
-#### Method 1: Manual Execution via UI
+#### **Required Inputs:**
+- `inventory_file`: Inventory file path (e.g., `inventory/production/hosts.yml`)
+- `environment_name`: Target environment (`development`, `staging`, `production`)
+- `ansible_vault_password`: Vault password for encrypted variables (sensitive)
 
-1. **Navigate to Job Execution**
-   - Go to **Operations** → **Jobs**
-   - Click **Run Service**
+#### **Optional Inputs:**
+- `target_hosts`: Specific hosts or groups to target
+- `batch_size`: Number/percentage of hosts to process simultaneously
+- `dry_run`: Run in check mode without making changes (default: false)
+- `verbosity`: Ansible verbosity level (1-4, default: 2)
+- `extra_tags`: Additional tags to run
+- `skip_tags`: Tags to skip during execution
 
-2. **Select Service and Parameters**
-   ```yaml
-   Service: windows-server-provisioning
-   Environment Variables:
-     - ANSIBLE_VAULT_PASSWORD: [encrypted vault password]
-     - TARGET_ENVIRONMENT: development
-   
-   Runtime Overrides:
-     - Inventory: inventory/development/hosts.yml
-     - Extra Variables: environment_name=development
-   ```
+### Step 4: Environment-Specific Service Configuration
 
-3. **Monitor Execution**
-   - View real-time logs
-   - Monitor task progress
-   - Check execution status
+#### Production Environment Services
 
-#### Method 2: API-Based Execution
+```bash
+# Production server provisioning
+iag service create \
+  --service-type "ansible-playbook" \
+  --name "windows-server-provisioning-prod" \
+  --repository "ansible-windows-powershell-automation" \
+  --description "Production Windows server provisioning with maximum security" \
+  --playbook "playbooks/infrastructure/server-provision.yml" \
+  --inventory "inventory/production/hosts.yml" \
+  --extra-vars "environment_name=production,security_level=maximum,provision_batch_size=3" \
+  --tags "infrastructure,provisioning,windows,production" \
+  --verbosity 1
 
-1. **Get Service ID**
-   ```bash
-   curl -X GET "https://your-iag-server/api/v1/services" \
-        -H "Authorization: Bearer YOUR_TOKEN"
-   ```
+# Production security baseline
+iag service create \
+  --service-type "ansible-playbook" \
+  --name "windows-security-baseline-prod" \
+  --repository "ansible-windows-powershell-automation" \
+  --description "Production CIS security baseline with comprehensive compliance" \
+  --playbook "playbooks/security/cis-baseline.yml" \
+  --inventory "inventory/production/hosts.yml" \
+  --extra-vars "environment_name=production,compliance_framework=cis,security_level=maximum" \
+  --tags "security,compliance,production" \
+  --verbosity 1
+```
 
-2. **Execute Service**
-   ```bash
-   curl -X POST "https://your-iag-server/api/v1/jobs" \
-        -H "Authorization: Bearer YOUR_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d '{
-          "service": "windows-server-provisioning",
-          "variables": {
-            "environment_name": "development",
-            "target_hosts": "web_servers"
-          }
-        }'
-   ```
+#### Staging Environment Services
 
-3. **Monitor Job Status**
-   ```bash
-   curl -X GET "https://your-iag-server/api/v1/jobs/JOB_ID" \
-        -H "Authorization: Bearer YOUR_TOKEN"
-   ```
+```bash
+# Staging server provisioning
+iag service create \
+  --service-type "ansible-playbook" \
+  --name "windows-server-provisioning-staging" \
+  --repository "ansible-windows-powershell-automation" \
+  --description "Staging Windows server provisioning for pre-production testing" \
+  --playbook "playbooks/infrastructure/server-provision.yml" \
+  --inventory "inventory/staging/hosts.yml" \
+  --extra-vars "environment_name=staging,security_level=high,provision_batch_size=5" \
+  --tags "infrastructure,provisioning,windows,staging"
+```
 
-### IAG Workflow Creation
+### Step 5: Service Verification and Testing
+
+```bash
+# List all created services
+iag service list
+
+# Get service details
+iag service show windows-server-provisioning
+
+# Test service syntax
+iag service validate windows-server-provisioning
+
+# Run service in dry-run mode
+iag job run \
+  --service "windows-server-provisioning" \
+  --parameters '{"dry_run": true, "target_hosts": "web_servers", "verbosity": 3}'
+```
+
+### Step 6: Create Automation Workflows
 
 #### Complete Deployment Workflow
 
-1. **Create New Workflow**
-   - Go to **Configuration** → **Workflows**
-   - Click **Add Workflow**
+```bash
+# Create comprehensive deployment workflow
+iag workflow create \
+  --name "windows-complete-deployment" \
+  --description "Complete Windows server deployment and configuration workflow" \
+  --steps '[
+    {
+      "service": "windows-server-provisioning",
+      "name": "Server Provisioning",
+      "on_success": "continue",
+      "on_failure": "stop"
+    },
+    {
+      "service": "windows-security-baseline", 
+      "name": "Security Hardening",
+      "on_success": "continue",
+      "on_failure": "stop"
+    },
+    {
+      "service": "windows-update-management",
+      "name": "Apply Updates",
+      "on_success": "complete",
+      "on_failure": "alert"
+    }
+  ]' \
+  --global-vars '{"environment_name": "${ENVIRONMENT}", "security_level": "high"}'
+```
 
-2. **Configure Workflow Steps**
-   ```yaml
-   Workflow Name: windows-complete-deployment
-   Description: Complete Windows server deployment and configuration workflow
-   
-   Steps:
-     1. Step: windows-server-provisioning
-        On Success: Continue to Step 2
-        On Failure: Stop workflow
-        
-     2. Step: windows-security-baseline
-        On Success: Continue to Step 3
-        On Failure: Stop workflow
-        
-     3. Step: windows-update-management
-        On Success: Complete workflow
-        On Failure: Alert administrators
-   
-   Global Variables:
-     - environment_name: ${ENVIRONMENT}
-     - target_group: ${TARGET_GROUP}
-   ```
+#### Web Server Deployment Workflow
 
-3. **Configure Conditional Logic**
-   ```yaml
-   Conditions:
-     - If environment_name == "production":
-         Add Step: backup-verification
-         Set security_level: maximum
-     
-     - If target_group == "web_servers":
-         Add Step: windows-iis-deployment
-         Set load_balancer_update: true
-   ```
+```bash
+# Create web server specific workflow
+iag workflow create \
+  --name "windows-webserver-deployment" \
+  --description "Complete web server deployment with IIS configuration" \
+  --steps '[
+    {
+      "service": "windows-server-provisioning",
+      "name": "Base Server Setup",
+      "parameters": {"target_hosts": "web_servers"}
+    },
+    {
+      "service": "windows-security-baseline",
+      "name": "Security Configuration", 
+      "parameters": {"target_hosts": "web_servers"}
+    },
+    {
+      "service": "windows-iis-deployment",
+      "name": "IIS Configuration",
+      "parameters": {"target_hosts": "web_servers"}
+    }
+  ]'
+```
 
-### IAG Monitoring and Alerting
+### Step 7: Configure Monitoring and Alerting
 
-#### Configure Job Monitoring
+```bash
+# Set up service monitoring
+iag monitor create \
+  --name "windows-automation-monitoring" \
+  --services "windows-server-provisioning,windows-security-baseline,windows-iis-deployment,windows-update-management" \
+  --alert-on "failure,timeout,warning" \
+  --notification-channels "email:ops@company.com,slack:#infrastructure"
 
-1. **Set Up Monitoring Rules**
-   ```yaml
-   Rule: Windows Automation Job Failures
-   Condition: job.status == "failed" AND job.service contains "windows"
-   Action: Send alert to operations team
-   Severity: High
-   ```
+# Configure job retention
+iag config set job.retention.days 30
+iag config set job.log.retention.days 90
+```
 
-2. **Configure Notification Channels**
-   ```yaml
-   Channels:
-     - Email: ops-team@company.com
-     - Slack: #infrastructure-alerts
-     - Teams: Infrastructure Operations
-   ```
+### Step 8: Security and Credential Configuration
 
-#### Performance Monitoring
+```bash
+# Configure vault password credential
+iag credential create \
+  --name "ansible-vault-password" \
+  --type "password" \
+  --description "Ansible vault password for Windows automation" \
+  --value "YOUR_VAULT_PASSWORD"
 
-1. **Create Dashboards**
-   - Job execution times
-   - Success/failure rates
-   - Server deployment metrics
-   - Security compliance scores
+# Configure Windows domain credentials
+iag credential create \
+  --name "windows-domain-admin" \
+  --type "username-password" \
+  --description "Windows domain administrator for automation" \
+  --username "DOMAIN\\ansible-service" \
+  --password "SECURE_PASSWORD"
 
-2. **Set Up Metrics Collection**
-   ```yaml
-   Metrics:
-     - deployment_time_minutes
-     - compliance_score_percentage
-     - failed_tasks_count
-     - servers_provisioned_count
-   ```
+# Associate credentials with services
+iag service update windows-server-provisioning \
+  --credentials "ansible-vault-password,windows-domain-admin"
+```
 
-### IAG Security Configuration
+## 🚀 Service Execution
 
-#### Credential Management
+### Running Services via CLI
 
-1. **Configure Ansible Vault**
-   ```yaml
-   Credential Type: Ansible Vault Password
-   Name: windows-automation-vault
-   Description: Vault password for Windows automation secrets
-   Password: [encrypted vault password]
-   ```
+```bash
+# Execute server provisioning on development
+iag job run \
+  --service "windows-server-provisioning" \
+  --parameters '{
+    "inventory_file": "inventory/development/hosts.yml",
+    "environment_name": "development",
+    "target_hosts": "all",
+    "verbosity": 2
+  }'
 
-2. **Configure Service Accounts**
-   ```yaml
-   Credential Type: Username/Password
-   Name: windows-domain-admin
-   Username: DOMAIN\ansible-automation
-   Password: [secure password]
-   Use for Services:
-     - windows-server-provisioning
-     - windows-security-baseline
-     - windows-iis-deployment
-     - windows-update-management
-   ```
+# Execute security baseline on specific servers
+iag job run \
+  --service "windows-security-baseline" \
+  --parameters '{
+    "inventory_file": "inventory/production/hosts.yml", 
+    "environment_name": "production",
+    "target_hosts": "web_servers",
+    "dry_run": false
+  }'
 
-#### Role-Based Access Control
+# Execute IIS deployment with custom variables
+iag job run \
+  --service "windows-iis-deployment" \
+  --parameters '{
+    "inventory_file": "inventory/staging/hosts.yml",
+    "environment_name": "staging", 
+    "target_hosts": "web_servers",
+    "extra_vars": "remove_default_site=true,ssl_required=true"
+  }'
+```
 
-1. **Create User Roles**
-   ```yaml
-   Role: Windows-Automation-Operator
-   Permissions:
-     - Execute windows automation services
-     - View job logs and status
-     - Access development and staging environments
-   
-   Role: Windows-Automation-Admin
-   Permissions:
-     - All operator permissions
-     - Execute production services
-     - Modify service configurations
-     - Manage credentials
-   ```
+### Monitoring Job Execution
 
-2. **Assign Users to Roles**
-   ```yaml
-   Users:
-     - john.smith@company.com: Windows-Automation-Admin
-     - jane.doe@company.com: Windows-Automation-Operator
-     - ops-team@company.com: Windows-Automation-Operator
-   ```
+```bash
+# List running jobs
+iag job list --status running
+
+# Get job status and logs
+iag job show JOB_ID
+
+# Follow job logs in real-time
+iag job logs JOB_ID --follow
+
+# Get job execution summary
+iag job summary JOB_ID
+```
 
 ## 📈 Business Impact Metrics
 
@@ -471,16 +433,10 @@ ansible-playbook -i inventory/production/hosts.yml playbooks/security/cis-baseli
 - **75% reduction** in mean time to recovery (MTTR)
 
 ### **Cost Optimization**
+- **ROI**: 268% in Year 1 with 2.8-month payback period
+- **Annual Savings**: $662,881 in operational costs
 - **60% reduction** in operational overhead
 - **40% decrease** in infrastructure management costs
-- **50% improvement** in resource utilization
-- **30% reduction** in security incident response time
-
-### **Risk Mitigation**
-- **100% consistency** in security baseline implementation
-- **Real-time compliance** monitoring and reporting
-- **Automated vulnerability** assessment and remediation
-- **Comprehensive audit trails** for compliance requirements
 
 ## 🔧 Advanced Configuration
 
