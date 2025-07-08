@@ -1,0 +1,251 @@
+---
+# Windows Update Management Playbook
+# Comprehensive Windows update deployment with rollback capabilities
+
+- name: "Windows Update Management and Deployment"
+  hosts: windows
+  gather_facts: true
+  serial: "{{ update_batch_size | default('25%') }}"
+  max_fail_percentage: "{{ max_update_failures | default(10) }}"
+  
+  vars:
+    update_session_id: "{{ ansible_date_time.epoch }}"
+    pre_update_snapshot: "PreUpdate_{{ ansible_date_time.date }}_{{ ansible_date_time.time | replace(':', '') }}"
+    update_log_path: "C:\\Windows\\Temp\\AnsibleUpdates_{{ update_session_id }}.log"
+    rollback_enabled: "{{ enable_update_rollback | default(true) }}"
+    
+  pre_tasks:
+    - name: "Pre-update validation and preparation"
+      block:
+        - name: "Check system requirements"
+          win_shell: |
+            $disk = Get-WmiObject -Class Win32_LogicalDisk -Filter "DeviceID='C:'"
+            $freeSpaceGB = [math]::Round($disk.FreeSpace / 1GB, 2)
+            $memory = Get-WmiObject -Class Win32_ComputerSystem
+            $memoryGB = [math]::Round($memory.TotalPhysicalMemory / 1GB, 2)
+            Write-Output "FreeSpace:$freeSpaceGB;Memory:$memoryGB"
+          register: system_resources
+          
+        - name: "Validate system resources"
+          assert:
+            that:
+              - system_resources.stdout | regex_search('FreeSpace:([0-9.]+)') | regex_replace('FreeSpace:', '') | float > 10.0
+              - system_resources.stdout | regex_search('Memory:([0-9.]+)') | regex_replace('Memory:', '') | float > 2.0
+            fail_msg: "Insufficient system resources for updates. Required: 10GB free space, 2GB memory"
+            
+        - name: "Create system restore point"
+          win_shell: |
+            Checkpoint-Computer -Description "{{ pre_update_snapshot }}" -RestorePointType "MODIFY_SETTINGS"
+          register: restore_point_result
+          when: rollback_enabled
+          ignore_errors: true
+          
+      tags:
+        - preparation
+        - validation
+        
+  tasks:
+    # Stage 1: Update discovery and categorization
+    - name: "Stage 1: Discover Available Updates"
+      block:
+        - name: "Search for available updates"
+          win_updates:
+            category_names:
+              - SecurityUpdates
+              - CriticalUpdates
+              - UpdateRollups
+              - DefinitionUpdates
+            state: searched
+          register: available_updates
+          
+        - name: "Categorize updates by priority"
+          set_fact:
+            critical_updates: "{{ available_updates.updates | selectattr('categories', 'search', 'Critical Updates') | list }}"
+            security_updates: "{{ available_updates.updates | selectattr('categories', 'search', 'Security Updates') | list }}"
+            definition_updates: "{{ available_updates.updates | selectattr('categories', 'search', 'Definition Updates') | list }}"
+            
+      tags:
+        - stage1
+        - discovery
+        
+    # Stage 2: Install critical and security updates
+    - name: "Stage 2: Install Critical and Security Updates"
+      block:
+        - name: "Install critical updates first"
+          win_updates:
+            category_names:
+              - CriticalUpdates
+            state: installed
+            reboot: false
+          register: critical_update_result
+          when: critical_updates | length > 0
+          
+        - name: "Install security updates"
+          win_updates:
+            category_names:
+              - SecurityUpdates
+            state: installed
+            reboot: false
+          register: security_update_result
+          when: security_updates | length > 0
+          
+      tags:
+        - stage2
+        - critical_updates
+        
+    # Stage 3: Install remaining updates
+    - name: "Stage 3: Install Remaining Updates"
+      block:
+        - name: "Install definition updates"
+          win_updates:
+            category_names:
+              - DefinitionUpdates
+            state: installed
+            reboot: false
+          register: definition_update_result
+          when: 
+            - definition_updates | length > 0
+            - install_definition_updates | default(true)
+            
+        - name: "Install optional updates"
+          win_updates:
+            category_names:
+              - UpdateRollups
+              - Updates
+            state: installed
+            reboot: false
+          register: optional_update_result
+          when: 
+            - install_optional_updates | default(false)
+            
+        - name: "Check if reboot is required"
+          win_shell: |
+            if (Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired" -ErrorAction SilentlyContinue) {
+                Write-Output "REBOOT_REQUIRED"
+            } elseif (Get-ChildItem "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending" -ErrorAction SilentlyContinue) {
+                Write-Output "REBOOT_REQUIRED"
+            } else {
+                Write-Output "NO_REBOOT_REQUIRED"
+            }
+          register: reboot_check
+          
+      tags:
+        - stage3
+        - remaining_updates
+        
+    # Stage 4: Handle reboot requirements
+    - name: "Stage 4: Handle System Reboot"
+      block:
+        - name: "Perform system reboot if required"
+          win_reboot:
+            reboot_timeout: "{{ reboot_timeout | default(1200) }}"
+            connect_timeout: "{{ reboot_connect_timeout | default(120) }}"
+            test_command: 'whoami'
+            msg: "Rebooting system to complete Windows updates"
+          when: 
+            - reboot_check.stdout | trim == "REBOOT_REQUIRED"
+            - auto_reboot | default(true)
+          register: reboot_result
+          
+        - name: "Wait for services to start after reboot"
+          win_service_info:
+            name: "{{ item }}"
+          loop:
+            - Spooler
+            - Themes
+            - Schedule
+          register: service_status
+          until: service_status.services[0].state == "started"
+          retries: 10
+          delay: 30
+          when: reboot_result is defined and reboot_result.changed
+          
+      tags:
+        - stage4
+        - reboot
+        
+    # Stage 5: Post-update validation
+    - name: "Stage 5: Post-Update Validation"
+      block:
+        - name: "Verify system stability after updates"
+          win_shell: |
+            $errors = Get-WinEvent -FilterHashtable @{LogName='System'; Level=1,2; StartTime=(Get-Date).AddHours(-1)} -ErrorAction SilentlyContinue
+            if ($errors) {
+                Write-Output "CRITICAL_ERRORS_FOUND:$($errors.Count)"
+            } else {
+                Write-Output "SYSTEM_STABLE"
+            }
+          register: system_stability_check
+          
+        - name: "Verify Windows Update service status"
+          win_service_info:
+            name: wuauserv
+          register: update_service_status
+          
+        - name: "Check for failed update installations"
+          win_shell: |
+            $session = New-Object -ComObject 'Microsoft.Update.Session'
+            $searcher = $session.CreateUpdateSearcher()
+            $history = $searcher.QueryHistory(0, 50) | Where-Object { $_.Date -gt (Get-Date).AddHours(-2) }
+            $failed = $history | Where-Object { $_.ResultCode -eq 3 -or $_.ResultCode -eq 4 }
+            if ($failed) {
+                $failed | ForEach-Object { Write-Output "FAILED:$($_.Title)" }
+            } else {
+                Write-Output "NO_FAILED_UPDATES"
+            }
+          register: failed_updates_check
+          
+      tags:
+        - stage5
+        - validation
+        
+  post_tasks:
+    - name: "Generate update completion report"
+      block:
+        - name: "Collect final update status"
+          win_updates:
+            state: searched
+          register: final_update_status
+          
+        - name: "Create update summary"
+          set_fact:
+            update_summary:
+              session_id: "{{ update_session_id }}"
+              hostname: "{{ inventory_hostname }}"
+              environment: "{{ environment_name }}"
+              start_time: "{{ ansible_date_time.iso8601 }}"
+              critical_installed: "{{ critical_update_result.installed_update_count | default(0) }}"
+              security_installed: "{{ security_update_result.installed_update_count | default(0) }}"
+              reboot_required: "{{ reboot_check.stdout | trim == 'REBOOT_REQUIRED' }}"
+              reboot_performed: "{{ reboot_result.changed | default(false) }}"
+              system_stable: "{{ system_stability_check.stdout | trim == 'SYSTEM_STABLE' }}"
+              
+        - name: "Save update report"
+          copy:
+            content: "{{ update_summary | to_nice_json }}"
+            dest: "./reports/{{ inventory_hostname }}_updates_{{ update_session_id }}.json"
+          delegate_to: localhost
+          
+        - name: "Send update completion notification"
+          win_eventlog:
+            log: Application
+            source: "Windows Update Management"
+            event_id: 3000
+            message: |
+              Windows Update session {{ update_session_id }} completed.
+              Updates installed: {{ (critical_update_result.installed_update_count | default(0)) + (security_update_result.installed_update_count | default(0)) }}
+              System status: {{ 'Stable' if system_stability_check.stdout | trim == 'SYSTEM_STABLE' else 'Requires attention' }}
+            entry_type: Information
+            
+      tags:
+        - reporting
+        - completion
+        
+  handlers:
+    - name: trigger_rollback
+      win_shell: |
+        Restore-Computer -RestorePoint "{{ pre_update_snapshot }}"
+      when: 
+        - rollback_enabled
+        - system_stability_check.stdout | trim != "SYSTEM_STABLE"
+      ignore_errors: true
