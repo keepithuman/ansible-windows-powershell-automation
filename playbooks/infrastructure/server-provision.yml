@@ -1,0 +1,155 @@
+---
+# Server Provisioning Playbook
+# Comprehensive Windows server setup and configuration
+
+- name: "Windows Server Provisioning and Configuration"
+  hosts: windows
+  gather_facts: true
+  serial: "{{ provision_batch_size | default(5) }}"
+  
+  vars:
+    provision_start_time: "{{ ansible_date_time.epoch }}"
+    
+  pre_tasks:
+    - name: "Validate target systems"
+      win_ping:
+      
+    - name: "Create provision log entry"
+      win_eventlog:
+        log: Application
+        source: "Ansible Provisioning"
+        event_id: 1000
+        message: "Starting server provisioning for {{ inventory_hostname }}"
+        entry_type: Information
+        
+  tasks:
+    # Stage 1: System preparation
+    - name: "Stage 1: System Preparation"
+      block:
+        - name: "Set computer name"
+          win_hostname:
+            name: "{{ inventory_hostname_short }}"
+          register: hostname_result
+          notify: reboot_server
+          
+        - name: "Configure time zone"
+          win_timezone:
+            timezone: "{{ time_zone }}"
+            
+        - name: "Configure regional settings"
+          win_region:
+            format: "{{ regional_format }}"
+            location: "{{ regional_location | default(244) }}"
+            
+      tags:
+        - stage1
+        - system_prep
+        
+    # Stage 2: Network configuration
+    - name: "Stage 2: Network Configuration"
+      block:
+        - name: "Configure DNS servers"
+          win_dns_client:
+            adapter_names: "*"
+            dns_servers: "{{ dns_servers }}"
+            
+        - name: "Configure NTP servers"
+          win_command: |
+            w32tm /config /manualpeerlist:"{{ ntp_servers | join(' ') }}" /syncfromflags:manual /reliable:yes /update
+          notify: restart_time_service
+          
+        - name: "Start and enable Windows Time service"
+          win_service:
+            name: w32time
+            state: started
+            start_mode: auto
+            
+      tags:
+        - stage2
+        - network
+        
+    # Stage 3: Windows features and roles
+    - name: "Stage 3: Windows Features and Roles"
+      block:
+        - name: "Install base Windows features"
+          win_feature:
+            name: "{{ item.name }}"
+            state: "{{ item.state }}"
+            include_management_tools: "{{ item.include_management_tools | default(true) }}"
+          loop: "{{ windows_features_base }}"
+          register: features_result
+          notify: reboot_if_required
+          
+      tags:
+        - stage3
+        - features
+        
+    # Stage 4: Security configuration
+    - name: "Stage 4: Security Configuration"
+      block:
+        - name: "Configure PowerShell execution policy"
+          win_command: |
+            powershell.exe -Command "Set-ExecutionPolicy {{ powershell_execution_policy }} -Force"
+          changed_when: false
+          
+        - name: "Apply registry security settings"
+          win_regedit:
+            path: "{{ item.path }}"
+            name: "{{ item.name }}"
+            data: "{{ item.data }}"
+            type: "{{ item.type }}"
+          loop: "{{ registry_settings }}"
+          
+        - name: "Configure Windows Firewall"
+          win_firewall_rule:
+            name: "{{ item.name }}"
+            direction: "{{ item.direction }}"
+            action: "{{ item.action }}"
+            protocol: "{{ item.protocol }}"
+            localport: "{{ item.local_port | default(omit) }}"
+            enabled: "{{ item.enabled }}"
+          loop: "{{ firewall_rules }}"
+          
+      tags:
+        - stage4
+        - security
+        
+    # Stage 5: Service configuration
+    - name: "Stage 5: Service Configuration"
+      block:
+        - name: "Configure Windows services"
+          win_service:
+            name: "{{ item.name }}"
+            state: "{{ item.state }}"
+            start_mode: "{{ item.start_mode }}"
+          loop: "{{ windows_services }}"
+          
+      tags:
+        - stage5
+        - services
+        
+  post_tasks:
+    - name: "Create completion log entry"
+      win_eventlog:
+        log: Application
+        source: "Ansible Provisioning"
+        event_id: 1001
+        message: "Server provisioning completed successfully for {{ inventory_hostname }}"
+        entry_type: Information
+        
+  handlers:
+    - name: reboot_server
+      win_reboot:
+        reboot_timeout: 600
+        connect_timeout: 60
+        
+    - name: reboot_if_required
+      win_reboot:
+        reboot_timeout: 600
+        connect_timeout: 60
+      when: features_result.reboot_required | default(false)
+      
+    - name: restart_time_service
+      win_service:
+        name: w32time
+        state: restarted
